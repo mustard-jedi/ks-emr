@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, fieldLabel, fmtDateTime, pretty, shiftDay, toDisplay, today, unitLabel, uploadFile, type FieldDef, type Meta, type Patient, type Rec, type UnitSystem } from './api';
+import { DEFAULT_SCHEDULE, isObservation, nextRound, ObservationChart, ObservationKey, outOfRange, whenLabel, type Schedule } from './observations';
 import { canSee, canWrite, RecordForm, RecordSection, useLookups } from './records';
 import { ErrorLine, TrendChart, useAction, useLoad, type Series } from './ui';
 
@@ -200,7 +201,20 @@ function Mar(p: TabProps) {
                             : setEditing({ dose: d, status: a }))}>
                           {pretty(a)}
                         </button>
-                      )) : <button className="btn small" onClick={() => setEditing({ dose: d })}>Edit&hellip;</button>}
+                      )) : (
+                        <>
+                          <button className="btn small" disabled={act.busy} title={d.prescription_id ? 'Put this dose back to Due' : 'Remove this dose (it is kept, struck out, in the record)'}
+                            onClick={() => act.run(async () => {
+                              // A scheduled dose goes back to Due; a one-off dose has no schedule to return to, so it is struck out.
+                              if (d.prescription_id) await api('PATCH', `/patients/${patient.id}/med_doses/${d.id}`, { dose_status: 'due' });
+                              else await api('POST', `/patients/${patient.id}/med_doses/${d.id}/entered-in-error`, { reason: 'Recorded by mistake (undone)' });
+                              p.onChanged();
+                            })}>
+                            Undo
+                          </button>
+                          <button className="btn small" onClick={() => setEditing({ dose: d })}>Edit&hellip;</button>
+                        </>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -238,53 +252,140 @@ export function MedsTab(p: TabProps) {
 
 // ---- Vitals ----------------------------------------------------------------
 
+const OBS_NAMES = ['recorded_at', 'temperature_c', 'heart_rate_bpm', 'respiratory_rate_per_min', 'systolic_mmhg', 'diastolic_mmhg', 'spo2_percent', 'pain_score', 'notes'];
+const BODY_NAMES = ['recorded_at', 'weight_kg', 'height_cm', 'head_circumference_cm', 'notes'];
+const GLUCOSE_NAMES = ['recorded_at', 'blood_glucose_mg_dl', 'glucose_context', 'notes'];
+const hasAny = (names: string[]) => (r: Rec) => names.some((n) => n !== 'recorded_at' && n !== 'notes' && r[n] != null);
+const isBody = hasAny(BODY_NAMES);
+const isGlucose = hasAny(GLUCOSE_NAMES);
+const localStamp = (t: number) => { const d = new Date(t); return `${d.toLocaleDateString('sv-SE')}T${d.toTimeString().slice(0, 5)}`; };
+const everyLabel = (minutes: number) => (minutes % 60 === 0 ? `${minutes / 60} hour${minutes === 60 ? '' : 's'}` : `${minutes} minutes`);
+
+/**
+ * Vitals are one record type ("vitals") shown as three logs, because they are taken on different rhythms:
+ * observations (T, P, R, BP, SpO2, pain) every few hours, weight and height now and then, glucose around meals.
+ */
 export function VitalsTab(p: TabProps) {
   const { units, patient } = p;
   const def = typeOf(p.meta, 'vitals');
   const ioDef = typeOf(p.meta, 'intake_output');
-  const [rows, setRows] = useState<Rec[]>([]);
+  const [obs, setObs] = useState<Rec[]>([]);
+  const [body, setBody] = useState<Rec[]>([]);
+  const [glucose, setGlucose] = useState<Rec[]>([]);
   const [io, setIo] = useState<Rec[]>([]);
-  const [measure, setMeasure] = useState('bp');
-  const onVitals = useCallback((r: Rec[]) => setRows(r), []);
+  const [days, setDays] = useState(2);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [bodyMeasure, setBodyMeasure] = useState('weight_kg');
   const onIo = useCallback((r: Rec[]) => setIo(r), []);
+  const clearEdit = useCallback(() => setEditId(null), []);
+  const act = useAction();
 
-  const numeric = def.fields.filter((f) => f.type === 'number' || (f.type === 'integer' && f.name === 'pain_score'));
-  const available = numeric.filter((f) => !['systolic_mmhg', 'diastolic_mmhg'].includes(f.name) && rows.filter((r) => r[f.name] != null).length >= 1);
-  const hasBp = rows.some((r) => r.systolic_mmhg != null);
-  const selected = measure === 'bp' && !hasBp && available[0] ? available[0].name : measure;
+  const sub = useCallback((names: string[], label: string, singular: string) => ({
+    ...def, label, singular, columns: names,
+    fields: names.map((n) => def.fields.find((f) => f.name === n)!).map((f) => (f.name === 'notes' ? { ...f, label: 'Remarks' } : f)),
+  }), [def]);
+  const obsDef = useMemo(() => sub(OBS_NAMES, 'Observations', 'Observation'), [sub]);
+  const bodyDef = useMemo(() => sub(BODY_NAMES, 'Weight & Height', 'Weight or height entry'), [sub]);
+  const glucoseDef = useMemo(() => sub(GLUCOSE_NAMES, 'Blood Glucose', 'Glucose reading'), [sub]);
 
-  let series: Series[] = [];
-  let unit = 'mmHg';
-  if (selected === 'bp') {
-    series = [
-      { name: 'Systolic', points: rows.filter((r) => r.systolic_mmhg != null).map((r) => ({ x: r.recorded_at, y: r.systolic_mmhg })) },
-      { name: 'Diastolic', points: rows.filter((r) => r.diastolic_mmhg != null).map((r) => ({ x: r.recorded_at, y: r.diastolic_mmhg })) },
-    ];
-  } else {
-    const f = def.fields.find((x) => x.name === selected) as FieldDef | undefined;
-    if (f) {
-      unit = f.quantity ? unitLabel(f.quantity, units) : f.name === 'pain_score' ? '0-10' : f.name.endsWith('bpm') ? 'bpm' : f.name.endsWith('percent') ? '%' : '/min';
-      series = [{ name: f.label, points: rows.filter((r) => r[f.name] != null).map((r) => ({ x: r.recorded_at, y: f.quantity ? toDisplay(f.quantity, r[f.name], units) : r[f.name] })) }];
-    }
-  }
+  // The rounds come from the first active "vital signs" monitoring reminder; without one, every 4 hours on the clock.
+  const seeReminders = canSee(patient, 'reminders');
+  const reminders = useLoad(() => (seeReminders ? api<Rec[]>('GET', `/patients/${patient.id}/reminders`) : Promise.resolve([] as Rec[])), [patient.id, seeReminders, p.refreshKey]);
+  const schedule: Schedule = useMemo(() => {
+    const r = (reminders.data || []).filter((x) => x.record_status === 'active' && x.reminder_status === 'active' && x.check_type === 'vital_signs')
+      .sort((a, b) => a.start_at.localeCompare(b.start_at))[0];
+    return r ? { intervalMinutes: r.interval_minutes, anchor: r.start_at, fromReminder: true } : DEFAULT_SCHEDULE;
+  }, [reminders.data]);
 
+  const latest = obs[0];
+  const selected = obs.find((r) => r.id === picked) || latest;
+  const flag = (field: string, r: Rec, text: string) => (outOfRange(field, r[field], patient) ? <strong className="oor">{text}</strong> : text);
+  const temp = (r: Rec) => `${toDisplay('temperature', r.temperature_c, units)} ${unitLabel('temperature', units)}`;
+
+  const remindMe = () => act.run(async () => {
+    const start = nextRound(Date.now(), DEFAULT_SCHEDULE) - DEFAULT_SCHEDULE.intervalMinutes * 60_000;
+    await api('POST', `/patients/${patient.id}/reminders`, { title: 'Check vital signs', check_type: 'vital_signs', interval_minutes: DEFAULT_SCHEDULE.intervalMinutes, start_at: localStamp(start) });
+    p.onChanged();
+  });
+
+  const bodyField = bodyDef.fields.find((f) => f.name === bodyMeasure)!;
+  const bodyPoints = body.filter((r) => r[bodyMeasure] != null).map((r) => ({ x: r.recorded_at, y: toDisplay(bodyField.quantity!, r[bodyMeasure], units) }));
+  const glucosePoints = glucose.filter((r) => r.blood_glucose_mg_dl != null).map((r) => ({ x: r.recorded_at, y: toDisplay('glucose', r.blood_glucose_mg_dl, units) }));
   const day = today();
   const total = (dir: string) => io.filter((r) => r.direction === dir && r.recorded_at.startsWith(day)).reduce((n, r) => n + r.amount_ml, 0);
 
   return (
     <div className="sections">
       {canSee(patient, 'vitals') && (
-        <RecordSection def={def} patient={patient} units={units} refreshKey={p.refreshKey} onChanged={p.onChanged} onLoaded={onVitals}>
-          {rows.length > 0 && (
-            <div className="trend">
-              <label htmlFor="measure">Trend (also serves as the growth chart for weight and height): </label>
-              <select id="measure" value={selected} onChange={(e) => setMeasure(e.target.value)}>
-                {hasBp && <option value="bp">Blood pressure</option>}
-                {available.map((f) => <option key={f.name} value={f.name}>{fieldLabel(f, units)}</option>)}
-              </select>
-              <TrendChart series={series} unit={unit} />
+        <RecordSection def={obsDef} patient={patient} units={units} refreshKey={p.refreshKey} onChanged={p.onChanged} onLoaded={setObs} filter={isObservation}
+          editId={editId} onEditHandled={clearEdit} rowClass={(r) => (selected && r.id === selected.id ? 'picked' : '')}
+          renderCell={(f, r) => (r[f.name] != null && outOfRange(f.name, r[f.name], patient)
+            ? <strong className="oor">{f.name === 'temperature_c' ? toDisplay('temperature', r[f.name], units) : r[f.name]}</strong> : undefined)}>
+          {obs.length > 0 && (
+            <div className="obs-wrap">
+              <div className="obs-controls">
+                <ObservationKey />
+                <label>Show{' '}
+                  <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+                    <option value={1}>Last 24 hours</option><option value={2}>Last 2 days</option><option value={7}>Last 7 days</option>
+                  </select>
+                </label>
+              </div>
+              {selected && (
+                <p className="obs-readout">
+                  <strong>{whenLabel(new Date(selected.recorded_at).getTime())}</strong>
+                  {selected.temperature_c != null && <span>Temp {flag('temperature_c', selected, temp(selected))}</span>}
+                  {selected.heart_rate_bpm != null && <span>Pulse {flag('heart_rate_bpm', selected, String(selected.heart_rate_bpm))}</span>}
+                  {selected.respiratory_rate_per_min != null && <span>Resp {flag('respiratory_rate_per_min', selected, String(selected.respiratory_rate_per_min))}</span>}
+                  {(selected.systolic_mmhg != null || selected.diastolic_mmhg != null) && (
+                    <span>BP {flag('systolic_mmhg', selected, String(selected.systolic_mmhg ?? '?'))}/{flag('diastolic_mmhg', selected, String(selected.diastolic_mmhg ?? '?'))}</span>
+                  )}
+                  {selected.spo2_percent != null && <span>SpO2 {flag('spo2_percent', selected, `${selected.spo2_percent} %`)}</span>}
+                  {selected.pain_score != null && <span>Pain {selected.pain_score}</span>}
+                  <small>{selected.created_by_name ? `Recorded by ${selected.created_by_name}` : ''}{selected.notes ? ` · ${selected.notes}` : ''}</small>
+                  <button className="btn small" onClick={() => setEditId(selected.id)}>{canWrite(patient) ? 'Edit' : 'Open'}&hellip;</button>
+                </p>
+              )}
+              <ObservationChart rows={obs} schedule={schedule} units={units} days={days} selectedId={selected?.id ?? null} onSelect={setPicked} />
+              <p className="muted">
+                The scales line up as on a paper chart: pulse 60, blood pressure 110 and {toDisplay('temperature', 37, units)} {unitLabel('temperature', units)} share the heavy line.
+                A check within an hour of a round sits in that round's column; an extra check is plotted at its own time. A value that was not taken is left out.
+              </p>
+              <p className="obs-rounds">
+                {schedule.fromReminder
+                  ? <>Rounds every <strong>{everyLabel(schedule.intervalMinutes)}</strong> &middot; next due <strong>{whenLabel(nextRound(Date.now(), schedule))}</strong>. Change it under Monitoring Reminders below.</>
+                  : <>Columns show a round every 4 hours (02, 06, 10, 14, 18, 22).</>}
+                {!schedule.fromReminder && seeReminders && canWrite(patient) && (
+                  <button className="btn small" disabled={act.busy} onClick={() => void remindMe()}>Remind me every 4 hours</button>
+                )}
+              </p>
+              <ErrorLine error={act.error} />
             </div>
           )}
+        </RecordSection>
+      )}
+      {seeReminders && (
+        <RecordSection def={typeOf(p.meta, 'reminders')} patient={patient} units={units} refreshKey={p.refreshKey} onChanged={p.onChanged}>
+          <p className="muted">While KS EMR is open, whoever looks after this chart is reminded when a round is due. A "vital signs" reminder also sets the columns of the observation chart. Dose reminders come from the prescriptions and need no entry here.</p>
+        </RecordSection>
+      )}
+      {canSee(patient, 'vitals') && (
+        <RecordSection def={bodyDef} patient={patient} units={units} refreshKey={p.refreshKey} onChanged={p.onChanged} onLoaded={setBody} filter={isBody}>
+          {body.length > 0 && (
+            <div className="trend">
+              <label htmlFor="body-measure">Trend (also the growth chart for children): </label>
+              <select id="body-measure" value={bodyMeasure} onChange={(e) => setBodyMeasure(e.target.value)}>
+                {bodyDef.fields.filter((f) => f.quantity && body.some((r) => r[f.name] != null)).map((f) => <option key={f.name} value={f.name}>{fieldLabel(f, units)}</option>)}
+              </select>
+              <TrendChart series={[{ name: bodyField.label, points: bodyPoints }]} unit={unitLabel(bodyField.quantity!, units)} />
+            </div>
+          )}
+        </RecordSection>
+      )}
+      {canSee(patient, 'vitals') && (
+        <RecordSection def={glucoseDef} patient={patient} units={units} refreshKey={p.refreshKey} onChanged={p.onChanged} onLoaded={setGlucose} filter={isGlucose}>
+          {glucose.length > 0 && <div className="trend"><TrendChart series={[{ name: 'Glucose', points: glucosePoints }]} unit={unitLabel('glucose', units)} /></div>}
         </RecordSection>
       )}
       {canSee(patient, 'intake_output') && (

@@ -1,6 +1,6 @@
 # KS EMR
 
-**KnightSoft Electronic Medical Record**: a multi-person family medical record modelled on the paper chart a hospital keeps for each patient, with a Windows 3.1 / TabWorks tabbed-binder look.
+**KnightSoft Electronic Medical Record**: a multi-person family medical record modelled on the paper chart a hospital keeps for each patient, laid out as a TabWorks-style tabbed binder in a modern or a classic Windows 3.1 look.
 
 > KS EMR is a personal record-keeping tool. It is not a certified medical device and gives no medical advice.
 
@@ -9,7 +9,10 @@
 - **One chart per person**, with seven tabs: Face Sheet, History, Meds, Vitals, Labs, Notes, Visits & Docs
 - **Face Sheet**: a one-page summary (allergies, conditions, current medications, family history, last visit, latest vitals, out-of-range labs), printable
 - **Medication administration record**: prescriptions generate scheduled doses that you mark given, missed, refused or held, with remarks
-- **Vitals and labs** with trend charts; metric/imperial toggle per user
+- **Care reminders** while the app is open: doses due and recurring checks ("check temperature every 2 hours"), with optional browser notifications
+- **Observation chart**: temperature, pulse, respiration, blood pressure and pain on one grid, one column per round, like a bedside chart
+- **Vitals and labs** with trend charts; metric/imperial toggle per user, with temperature settable on its own
+- **Themes**: Modern light, Modern dark and the original Classic 3.1, chosen per user; new themes are a block of CSS tokens ([docs/THEMING.md](docs/THEMING.md))
 - **Private by default**: each family member has a login; a chart is visible only to people it is shared with, by section and access level
 - **Managed profiles** for children and parents who do not sign in
 - **Temporary physician access**: an expiring, read-only account limited to chosen sections, with an access log
@@ -146,6 +149,7 @@ One Node.js process serves the REST API, the MCP endpoint and the built web app,
 ```
 server/src/recordTypes.ts   every chart section defined once: drives tables, validation, REST, OpenAPI, MCP and forms
 server/src/records.ts       generic create / amend / strike-out, medication schedule
+server/src/reminders.ts      what is due now: doses and monitoring checks
 server/src/access.ts        who may see which chart and section; sharing; physician access
 server/src/auth.ts          passwords (scrypt), sessions, API tokens, sign-in throttling
 server/src/app.ts           HTTP routes
@@ -154,6 +158,8 @@ server/src/fhir.ts          FHIR R4 export
 server/src/backup.ts        plain-text backup, restore, chart export/import
 server/src/cli.ts           backup / restore / reset-password commands
 web/src/                    React web app (Vite)
+web/src/styles.css          structure, plus the classic theme's tokens
+web/src/themes.css          the other themes; web/src/theme.ts lists them
 tests/api.test.ts           end-to-end API tests
 deploy/                     deploy script, Caddyfile, systemd unit
 ```
@@ -170,4 +176,4 @@ To add a field or a whole new chart section, edit `recordTypes.ts`; the database
 
 ## Not in this version
 
-FHIR import, HL7 v2 messaging, appointment reminders, two-factor sign-in, encryption at rest, growth-chart percentile curves.
+FHIR import, HL7 v2 messaging, appointment reminders, reminders while the app is closed (push notifications), two-factor sign-in, encryption at rest, growth-chart percentile curves.

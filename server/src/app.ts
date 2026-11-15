@@ -20,6 +20,7 @@ import { exportChart, importChart } from './backup.js';
 import { buildOpenApi } from './openapi.js';
 import { createMcpServer } from './mcp.js';
 import { PATIENT_FIELDS, RECORD_TYPES, TABS, TYPE_BY_KEY } from './recordTypes.js';
+import { dueReminders, markReminderDone } from './reminders.js';
 import { ApiError, requireInt, requireString } from './validate.js';
 
 const COOKIE = 'ks_session';
@@ -149,11 +150,23 @@ export function createApp() {
       if (!['metric', 'imperial'].includes(b.unit_system)) throw new ApiError(400, 'unit_system must be metric or imperial');
       getDb().prepare('UPDATE users SET unit_system = ? WHERE id = ?').run(b.unit_system, actor.userId);
     }
+    if (b.temperature_unit !== undefined) {
+      if (!['auto', 'c', 'f'].includes(b.temperature_unit)) throw new ApiError(400, 'temperature_unit must be auto, c or f');
+      getDb().prepare('UPDATE users SET temperature_unit = ? WHERE id = ?').run(b.temperature_unit, actor.userId);
+    }
+    if (b.theme !== undefined) {
+      // Any theme id is accepted so that a new theme needs no server change; the web app falls back to "auto" for ids it does not know.
+      if (typeof b.theme !== 'string' || !/^[a-z0-9-]{1,30}$/.test(b.theme)) throw new ApiError(400, 'theme must be a theme id such as auto, classic, modern-light or modern-dark');
+      getDb().prepare('UPDATE users SET theme = ? WHERE id = ?').run(b.theme, actor.userId);
+    }
     if (b.display_name !== undefined && actor.role !== 'guest') {
       getDb().prepare('UPDATE users SET display_name = ? WHERE id = ?').run(requireString(b.display_name, 'display_name', 100), actor.userId);
     }
     res.json({ user: publicUser(userRow(actor.userId)) });
   });
+
+  /** Care reminders: doses due and monitoring checks due, across every chart this person may write to. */
+  api.get('/reminders/due', (req, res) => { res.json(dueReminders(me(req))); });
 
   api.post('/me/password', jsonBody, (req, res) => {
     const actor = me(req);
@@ -352,6 +365,9 @@ export function createApp() {
   api.patch('/patients/:pid/:type/:id', jsonBody, (req, res, next) => {
     const key = type(req, next);
     if (key) res.json(updateRecord(me(req), pid(req), key, requireInt(req.params.id, 'id'), req.body));
+  });
+  api.post('/patients/:pid/reminders/:id/done', (req, res) => {
+    res.json(markReminderDone(me(req), pid(req), requireInt(req.params.id, 'id')));
   });
   api.post('/patients/:pid/:type/:id/entered-in-error', jsonBody, (req, res, next) => {
     const key = type(req, next);

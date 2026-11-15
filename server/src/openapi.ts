@@ -29,6 +29,15 @@ export function buildOpenApi() {
       responses: ok('Doses'),
     },
   };
+  paths['/api/reminders/due'] = {
+    get: { summary: 'What needs doing now across all your charts: doses due and monitoring checks due', operationId: 'list_due_reminders', responses: ok('Due reminders') },
+  };
+  paths['/api/patients/{patient_id}/reminders/{id}/done'] = {
+    post: {
+      summary: 'Mark a monitoring reminder as done now; it comes due again one interval later', operationId: 'mark_reminder_done',
+      parameters: [pid, { name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: ok('The reminder'),
+    },
+  };
   paths['/api/patients/{patient_id}/fhir'] = {
     get: { summary: 'Export the chart as an HL7 FHIR R4 Bundle', operationId: 'export_fhir', parameters: [pid], responses: ok('FHIR Bundle') },
   };

@@ -1,7 +1,7 @@
 import { localNow, localToday, utcNow } from './config.js';
 import { audit, getDb, type Actor, type Row } from './db.js';
 import { requireRead, requireWrite } from './access.js';
-import { TYPE_BY_KEY, type RecordTypeDef } from './recordTypes.js';
+import { SUGGESTED_TIMES, TYPE_BY_KEY, type RecordTypeDef } from './recordTypes.js';
 import { ApiError, validateInput } from './validate.js';
 
 export function typeDef(key: string): RecordTypeDef {
@@ -29,18 +29,20 @@ function dayDiff(a: string, b: string): number {
 
 // ---- per-type rules --------------------------------------------------------
 
-const DEFAULT_TIMES: Record<string, string> = {
-  once_daily: '08:00', twice_daily: '08:00,20:00', three_times_daily: '08:00,14:00,20:00',
-  four_times_daily: '08:00,12:00,16:00,20:00', every_other_day: '08:00', weekly: '08:00',
-};
-
+/** Accepts "08:00", "8:00", "0800", "8", "7am", "3:30pm"; returns sorted, de-duplicated "HH:MM,HH:MM". */
 function normaliseTimes(s: string): string {
-  const parts = s.split(/[,;\s]+/).filter(Boolean).map((t) => {
-    const m = /^(\d{1,2}):?(\d{2})$/.exec(t);
-    if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) {
-      throw new ApiError(400, `schedule_times must be 24-hour times separated by commas, e.g. "08:00,20:00" (got "${t}")`);
+  const parts = s.toLowerCase().replace(/\s+(am|pm)\b/g, '$1').split(/[,;\s]+/).filter(Boolean).map((t) => {
+    const m = /^(\d{1,2})(?::?(\d{2}))?(am|pm)?$/.exec(t);
+    let h = m ? Number(m[1]) : NaN;
+    const min = m && m[2] ? Number(m[2]) : 0;
+    if (m && m[3]) {
+      if (h < 1 || h > 12) h = NaN;
+      else h = (h % 12) + (m[3] === 'pm' ? 12 : 0);
     }
-    return `${m[1].padStart(2, '0')}:${m[2]}`;
+    if (!m || !(h >= 0 && h <= 23) || min > 59) {
+      throw new ApiError(400, `schedule_times must be clock times separated by commas, e.g. "07:00,15:00,23:00" (got "${t}")`);
+    }
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
   });
   return [...new Set(parts)].sort().join(',');
 }
@@ -58,6 +60,11 @@ function applyRules(def: RecordTypeDef, actor: Actor, patientId: number, input: 
   const db = getDb();
   if (def.key === 'prescriptions') {
     if (input.schedule_times) input.schedule_times = normaliseTimes(input.schedule_times);
+    // Store the suggested times on a new prescription so they are visible and can be changed later.
+    else if (isCreate && SUGGESTED_TIMES[merged.frequency]) input.schedule_times = SUGGESTED_TIMES[merged.frequency];
+    // A changed frequency replaces suggested times with the new suggestion, but never times someone typed themselves.
+    else if (!isCreate && input.frequency && input.schedule_times === undefined && SUGGESTED_TIMES[merged.frequency]
+      && (!merged.schedule_times || Object.values(SUGGESTED_TIMES).includes(merged.schedule_times))) input.schedule_times = SUGGESTED_TIMES[merged.frequency];
     if (merged.end_date && merged.start_date && merged.end_date < merged.start_date) throw new ApiError(400, 'end_date cannot be before start_date');
   }
   if (def.key === 'med_doses') {
@@ -68,7 +75,9 @@ function applyRules(def: RecordTypeDef, actor: Actor, patientId: number, input: 
     } else if (!merged.medication_name) {
       throw new ApiError(400, 'Give either prescription_id or medication_name');
     }
-    if (merged.dose_status === 'given') {
+    // Undo: putting a dose back to "due" clears who gave it and when. The audit log keeps the earlier values.
+    if (!isCreate && input.dose_status === 'due') { input.given_at = null; input.given_by = null; }
+    if (merged.dose_status === 'given' && input.dose_status !== 'due') {
       if (!merged.given_at) input.given_at = localNow();
       if (!merged.given_by) input.given_by = actor.displayName;
     }
@@ -197,7 +206,7 @@ export function ensureDoses(patientId: number, from: string, to: string) {
   const now = utcNow();
   db.transaction(() => {
     for (const rx of rxs) {
-      const times = (rx.schedule_times || DEFAULT_TIMES[rx.frequency] || '08:00').split(',');
+      const times = (rx.schedule_times || SUGGESTED_TIMES[rx.frequency] || '08:00').split(',');
       const step = rx.frequency === 'every_other_day' ? 2 : rx.frequency === 'weekly' ? 7 : 1;
       for (let day = from; day <= to; day = addDays(day, 1)) {
         if (day < rx.start_date || (rx.end_date && day > rx.end_date)) continue;

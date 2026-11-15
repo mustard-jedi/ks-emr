@@ -30,6 +30,8 @@ export interface FieldDef {
   quantity?: Quantity;
   /** Set by the server, never accepted as input. */
   readOnly?: boolean;
+  /** Suggested value that follows another field: used when this field is left empty, and prefilled (still editable) in the web form. */
+  suggestFrom?: { field: string; map: Record<string, string> };
 }
 
 export interface RecordTypeDef {
@@ -50,6 +52,11 @@ type Opt = Partial<Omit<FieldDef, 'name' | 'label' | 'type' | 'description'>>;
 const mk = (type: FieldType) => (name: string, label: string, description: string, opt: Opt = {}): FieldDef => ({
   name, label, type, description, ...opt,
 });
+/** Suggested clock times per frequency. Only a starting point: any times can be typed instead. */
+export const SUGGESTED_TIMES: Record<string, string> = {
+  once_daily: '08:00', twice_daily: '08:00,20:00', three_times_daily: '06:00,14:00,22:00',
+  four_times_daily: '06:00,12:00,18:00,22:00', every_other_day: '08:00', weekly: '08:00',
+};
 const str = mk('string');
 const text = mk('text');
 const num = mk('number');
@@ -153,7 +160,8 @@ export const RECORD_TYPES: RecordTypeDef[] = [
       enm('frequency', 'Frequency', 'How often. Use as_needed for medicines taken only when required.',
         ['once_daily', 'twice_daily', 'three_times_daily', 'four_times_daily', 'every_other_day', 'weekly', 'as_needed'],
         { required: true, default: 'once_daily' }),
-      str('schedule_times', 'Times', 'Clock times for each dose, 24-hour, comma separated, e.g. "08:00,20:00". Leave empty to use defaults for the frequency.'),
+      str('schedule_times', 'Times', 'Clock times for each dose, 24-hour, comma separated, e.g. "07:00,15:00,23:00". Any times are allowed. Leave empty to use the suggested times for the frequency.',
+        { suggestFrom: { field: 'frequency', map: SUGGESTED_TIMES } }),
       date('start_date', 'Start', 'First day of the prescription.', { required: true, default: 'today' }),
       date('end_date', 'End', 'Last day of the prescription. Leave empty if ongoing.'),
       str('prescriber_name', 'Prescriber', 'Doctor who prescribed it.'),
@@ -172,7 +180,7 @@ export const RECORD_TYPES: RecordTypeDef[] = [
       int('prescription_id', 'Prescription ID', 'ID of the prescription this dose belongs to. Leave empty for an over-the-counter or one-off medicine.'),
       str('medication_name', 'Medication', 'Medicine name. Filled automatically when prescription_id is given.'),
       datetime('scheduled_at', 'Scheduled', 'When the dose was due.', { required: true, default: 'now' }),
-      enm('dose_status', 'Status', 'due = not yet taken, given = taken, missed = not taken, refused = person declined, held = deliberately skipped.',
+      enm('dose_status', 'Status', 'due = not yet taken, given = taken, missed = not taken, refused = person declined, held = deliberately skipped. Set back to due to undo a mistake.',
         ['due', 'given', 'missed', 'refused', 'held'], { required: true, default: 'given' }),
       datetime('given_at', 'Given at', 'When the dose was actually taken. Defaults to now when the status is given.'),
       str('given_by', 'Given by', 'Who gave or took the dose.'),
@@ -213,6 +221,22 @@ export const RECORD_TYPES: RecordTypeDef[] = [
       enm('io_type', 'Type', 'What kind of intake or output.',
         ['oral_fluid', 'iv_fluid', 'tube_feeding', 'food', 'urine', 'stool', 'vomit', 'drain', 'other'], req),
       num('amount_ml', 'Amount (ml)', 'Volume in millilitres.', { required: true, min: 0, max: 20000 }),
+      notes,
+    ],
+  },
+  {
+    key: 'reminders', tool: 'reminder', label: 'Monitoring Reminders', singular: 'Reminder', tab: 'vitals',
+    description: 'Recurring checks for someone who is being watched closely, e.g. "Check temperature every 2 hours". The web app alerts whoever looks after the chart when a check is due. Dose reminders need no entry here: they come from the prescriptions.',
+    sortBy: 'start_at', columns: ['title', 'check_type', 'interval_minutes', 'start_at', 'end_at', 'reminder_status'],
+    fields: [
+      str('title', 'What to do', 'Short instruction shown in the alert, e.g. "Check temperature".', req),
+      enm('check_type', 'Done when', 'vital_signs = done when vital signs are recorded within an hour of the round. intake_output = done when an intake/output entry is added. other = marked done by hand.',
+        ['vital_signs', 'intake_output', 'other'], { required: true, default: 'vital_signs' }),
+      int('interval_minutes', 'Every (minutes)', 'Minutes between rounds, e.g. 240 for every 4 hours. Rounds fall at start + 1 interval, start + 2 intervals, and so on.', { required: true, min: 5, max: 10080 }),
+      datetime('start_at', 'Start', 'The time the rounds are counted from. Start 14:00 with 240 minutes gives rounds at 18:00, 22:00, 02:00 and so on.', { required: true, default: 'now' }),
+      datetime('end_at', 'End', 'When to stop reminding. Leave empty to continue until stopped.'),
+      enm('reminder_status', 'Status', 'active = keep reminding, stopped = no more alerts.', ['active', 'stopped'], { required: true, default: 'active' }),
+      datetime('last_done_at', 'Last done', 'When the check was last marked done by hand.'),
       notes,
     ],
   },

@@ -40,6 +40,8 @@ function initialValues(fields: FieldDef[], rec: Rec | undefined, units: UnitSyst
     else if (f.default === 'today') out[f.name] = today();
     else out[f.name] = f.default !== undefined ? String(f.default) : '';
   }
+  // A new entry starts with the suggestion that goes with another field's value (e.g. dose times for a frequency).
+  if (!rec) for (const f of fields) if (f.suggestFrom && !out[f.name]) out[f.name] = f.suggestFrom.map[out[f.suggestFrom.field]] ?? '';
   return out;
 }
 
@@ -58,7 +60,15 @@ export function RecordForm(props: {
     [record, writable, units]);
   const [values, setValues] = useState(start);
   const act = useAction();
-  const set = (name: string, v: string) => setValues((old) => ({ ...old, [name]: v }));
+  const set = (name: string, v: string) => setValues((old) => {
+    const next = { ...old, [name]: v };
+    // Fields suggested from this one follow it, unless someone has typed their own value there.
+    for (const f of writable) {
+      const s = f.suggestFrom;
+      if (s && s.field === name && (!old[f.name] || old[f.name] === s.map[old[name]])) next[f.name] = s.map[v] ?? '';
+    }
+    return next;
+  });
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -187,16 +197,28 @@ export function RecordSection(props: {
   def: RecordTypeDef; patient: Patient; units: UnitSystem; refreshKey: number; onChanged: () => void;
   layout?: 'table' | 'notes'; onLoaded?: (rows: Rec[]) => void; children?: ReactNode;
   renderCell?: (f: FieldDef, r: Rec) => ReactNode | undefined; rowClass?: (r: Rec) => string;
+  /** Show only some of the type's entries (e.g. the vitals entries that hold a weight). */
+  filter?: (r: Rec) => boolean;
+  /** Open this entry for amending, as if its row had been clicked. */
+  editId?: number | null; onEditHandled?: () => void;
 }) {
-  const { def, patient, units, refreshKey, onChanged } = props;
+  const { def, patient, units, refreshKey, onChanged, filter } = props;
   const [showStruck, setShowStruck] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Rec | null>(null);
   const lookups = useLookups(def, patient, refreshKey);
-  const { data: rows, error } = useLoad(
+  const { data: loaded, error } = useLoad(
     () => api<Rec[]>('GET', `/patients/${patient.id}/${def.key}?limit=500${showStruck ? '&include_errors=true' : ''}`),
     [patient.id, def.key, refreshKey, showStruck],
   );
+  const rows = useMemo(() => (loaded && filter ? loaded.filter(filter) : loaded), [loaded, filter]);
+  const { editId, onEditHandled } = props;
+  useEffect(() => {
+    if (editId == null || !rows) return;
+    const r = rows.find((x) => x.id === editId);
+    if (r) setEditing(r);
+    onEditHandled?.();
+  }, [editId, rows, onEditHandled]);
   const { onLoaded } = props;
   useEffect(() => { if (rows && onLoaded) onLoaded(rows.filter((r) => r.record_status === 'active')); }, [rows, onLoaded]);
 

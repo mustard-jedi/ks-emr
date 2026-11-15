@@ -11,7 +11,7 @@ export function Dialog({ title, onClose, children, wide }: { title: string; onCl
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className={`window dialog${wide ? ' wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="titlebar">
-          <button className="sysbtn" onClick={onClose} aria-label="Close" title="Close">&#x2500;</button>
+          <button className="sysbtn" onClick={onClose} aria-label="Close" title="Close"></button>
           <span className="title">{title}</span>
         </div>
         <div className="dialog-body">{children}</div>
@@ -54,7 +54,8 @@ export function useAction() {
 // ---- trend chart -----------------------------------------------------------
 
 export interface Series { name: string; points: { x: string; y: number }[] }
-const SERIES_COLORS = ['#000080', '#800000', '#008000'];
+// Colours come from the theme tokens (styles.css), so charts follow the theme.
+const SERIES_COLORS = ['var(--series-0)', 'var(--series-1)', 'var(--series-2)'];
 
 /** Small line chart drawn in plain SVG. x values are ISO dates or date-times. */
 export function TrendChart({ series, unit, low, high }: { series: Series[]; unit: string; low?: number | null; high?: number | null }) {
@@ -76,11 +77,11 @@ export function TrendChart({ series, unit, low, high }: { series: Series[]; unit
   return (
     <figure className="chart">
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Trend of ${series.map((s) => s.name).join(' and ')}`}>
-        <rect x={L} y={T} width={W - L - R} height={H - T - B} fill="#fff" stroke="#000" />
-        {low != null && high != null && <rect x={L} y={py(high)} width={W - L - R} height={Math.max(0, py(low) - py(high))} fill="#c0e8c0" />}
+        <rect x={L} y={T} width={W - L - R} height={H - T - B} style={{ fill: 'var(--chart-plot)', stroke: 'var(--line)' }} />
+        {low != null && high != null && <rect x={L} y={py(high)} width={W - L - R} height={Math.max(0, py(low) - py(high))} style={{ fill: 'var(--chart-range)' }} />}
         {ticks.map((t) => (
           <g key={t}>
-            <line x1={L} x2={W - R} y1={py(t)} y2={py(t)} stroke="#c0c0c0" strokeDasharray="2 3" />
+            <line x1={L} x2={W - R} y1={py(t)} y2={py(t)} style={{ stroke: 'var(--chart-grid)' }} strokeDasharray="2 3" />
             <text x={L - 6} y={py(t) + 5} textAnchor="end" fontSize="16">{t.toFixed(digits)}</text>
           </g>
         ))}
@@ -88,9 +89,9 @@ export function TrendChart({ series, unit, low, high }: { series: Series[]; unit
           const pts = [...s.points].sort((a, b) => Date.parse(a.x) - Date.parse(b.x));
           return (
             <g key={s.name}>
-              <polyline fill="none" stroke={SERIES_COLORS[i % 3]} strokeWidth="2" points={pts.map((p) => `${px(p.x)},${py(p.y)}`).join(' ')} />
+              <polyline fill="none" style={{ stroke: SERIES_COLORS[i % 3] }} strokeWidth="2" points={pts.map((p) => `${px(p.x)},${py(p.y)}`).join(' ')} />
               {pts.map((p, j) => (
-                <rect key={j} x={px(p.x) - 3} y={py(p.y) - 3} width="6" height="6" fill={SERIES_COLORS[i % 3]}>
+                <rect key={j} x={px(p.x) - 3} y={py(p.y) - 3} width="6" height="6" style={{ fill: SERIES_COLORS[i % 3] }}>
                   <title>{`${s.name}: ${p.y} ${unit} on ${p.x.replace('T', ' ')}`}</title>
                 </rect>
               ))}
@@ -103,7 +104,7 @@ export function TrendChart({ series, unit, low, high }: { series: Series[]; unit
       <figcaption>
         {series.map((s, i) => <span key={s.name}><i style={{ background: SERIES_COLORS[i % 3] }} /> {s.name}</span>)}
         <span>Unit: {unit}</span>
-        {low != null && high != null && <span><i style={{ background: '#c0e8c0' }} /> Normal range</span>}
+        {low != null && high != null && <span><i style={{ background: 'var(--chart-range)' }} /> Normal range</span>}
       </figcaption>
     </figure>
   );

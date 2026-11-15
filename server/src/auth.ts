@@ -69,6 +69,7 @@ export function createUser(o: {
 export function publicUser(u: Row) {
   return {
     id: u.id, username: u.username, display_name: u.display_name, role: u.role, unit_system: u.unit_system,
+    temperature_unit: u.temperature_unit || 'auto', theme: u.theme || 'auto',
     expires_at: u.expires_at, disabled: !!u.disabled, must_change_password: !!u.must_change_password, created_at: u.created_at,
   };
 }

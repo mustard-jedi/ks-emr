@@ -2,12 +2,19 @@
 
 export type FieldType = 'string' | 'text' | 'number' | 'integer' | 'boolean' | 'date' | 'datetime' | 'enum';
 export type Quantity = 'weight' | 'length' | 'temperature' | 'glucose';
-export type UnitSystem = 'metric' | 'imperial';
+/** What the screen shows. Temperature can differ from the rest (e.g. pounds and inches, but degrees C). */
+export interface UnitSystem { system: 'metric' | 'imperial'; temperature: 'c' | 'f' }
+export function unitsOf(u: Pick<User, 'unit_system' | 'temperature_unit'>): UnitSystem {
+  const temperature = u.temperature_unit === 'c' || u.temperature_unit === 'f' ? u.temperature_unit : u.unit_system === 'imperial' ? 'f' : 'c';
+  return { system: u.unit_system, temperature };
+}
+const sysFor = (q: Quantity, u: UnitSystem) => (q === 'temperature' ? (u.temperature === 'f' ? 'imperial' : 'metric') : u.system);
 
 export interface FieldDef {
   name: string; label: string; type: FieldType; description: string;
   required?: boolean; values?: string[]; default?: string | number | boolean;
   min?: number; max?: number; quantity?: Quantity; readOnly?: boolean;
+  suggestFrom?: { field: string; map: Record<string, string> };
 }
 export interface RecordTypeDef {
   key: string; tool: string; label: string; singular: string; tab: string; description: string;
@@ -16,7 +23,7 @@ export interface RecordTypeDef {
 export interface Meta { tabs: { key: string; label: string }[]; record_types: RecordTypeDef[]; patient_fields: FieldDef[] }
 export type Rec = Record<string, any>;
 export interface Patient extends Rec { id: number; full_name: string; access_level: 'manager' | 'editor' | 'viewer'; shared_sections: string }
-export interface User { id: number; username: string; display_name: string; role: 'owner' | 'member' | 'guest'; unit_system: UnitSystem; must_change_password: boolean; expires_at: string | null; disabled: boolean }
+export interface User { id: number; username: string; display_name: string; role: 'owner' | 'member' | 'guest'; unit_system: 'metric' | 'imperial'; temperature_unit: 'auto' | 'c' | 'f'; theme: string; must_change_password: boolean; expires_at: string | null; disabled: boolean }
 
 export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -60,16 +67,18 @@ const CONV: Record<Quantity, { metric: string; imperial: string; to: (v: number)
 const GLUCOSE = 18.016;
 const round = (v: number, d: number) => Math.round(v * 10 ** d) / 10 ** d;
 
-export function unitLabel(q: Quantity, sys: UnitSystem): string {
-  return CONV[q][sys];
+export function unitLabel(q: Quantity, units: UnitSystem): string {
+  return CONV[q][sysFor(q, units)];
 }
 /** Stored value -> number shown on screen. */
-export function toDisplay(q: Quantity, v: number, sys: UnitSystem): number {
+export function toDisplay(q: Quantity, v: number, units: UnitSystem): number {
+  const sys = sysFor(q, units);
   if (q === 'glucose') return sys === 'metric' ? round(v / GLUCOSE, 1) : round(v, 0);
   return sys === 'metric' ? round(v, CONV[q].digits[0]) : round(CONV[q].to(v), CONV[q].digits[1]);
 }
 /** Number typed on screen -> stored value. */
-export function fromDisplay(q: Quantity, v: number, sys: UnitSystem): number {
+export function fromDisplay(q: Quantity, v: number, units: UnitSystem): number {
+  const sys = sysFor(q, units);
   if (q === 'glucose') return sys === 'metric' ? round(v * GLUCOSE, 1) : v;
   return sys === 'metric' ? v : round(CONV[q].from(v), 2);
 }

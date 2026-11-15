@@ -1,0 +1,148 @@
+/*
+ * KS EMR themes other than "classic" (whose tokens are the defaults in styles.css).
+ * A theme is (1) a block of token values and, only if it needs them, (2) shape rules.
+ * How to add one: docs/THEMING.md
+ */
+
+/* ---- tokens: Modern light ---- */
+[data-theme="modern-light"] {
+  color-scheme: light;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-size: 15px;
+
+  --desk: #e6ecef; --desk-ink: #14213d;
+  --face: #f1f4f8; --paper: #ffffff;
+  --ink: #14213d; --muted: #4f5b75; --label: #4f5b75; --struck: #6a758c;
+  --line: #cdd5df; --line-soft: #dde3ea;
+  --bevel-light: transparent; --bevel-dark: transparent;
+
+  --title: #1b2a6b; --on-title: #ffffff; --link: #1b2a6b;
+  --hover-bg: #eaf0f7; --hover-ink: #14213d;
+
+  --red: #a8200d; --green: #14532d;
+  --note-bg: #fff4cf; --alert-bg: #fde8e5; --box-bg: #ffffff; --note-paper: #fffbea; --code-bg: #f1f4f8;
+  --disabled-bg: #eef1f5; --disabled-ink: #4f5b75;
+  --ok-bg: #d3f0dc; --due-bg: #ffecad; --bad-bg: #fbd3cd; --overdue-bg: #f7aba1; --overdue-row: #fff3f1;
+
+  --t0: #f7b2ad; --t1: #f9d58b; --t2: #f4ec8e; --t3: #a9e0a4; --t4: #9edddd; --t5: #b4c0fa; --t6: #ddb6ec;
+  --tab-ink: #14213d;
+
+  --chart-plot: #ffffff; --chart-grid: #cdd5df; --chart-range: #d3f0dc; --chart-select: #e3ebf6;
+  --series-0: #1b2a6b; --series-1: #b3261e; --series-2: #0f766e;
+
+  --overlay: rgba(14, 22, 40, .5);
+  --close-glyph: "\2715";
+}
+
+/* ---- tokens: Modern dark ---- */
+[data-theme="modern-dark"] {
+  color-scheme: dark;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-size: 15px;
+
+  --desk: #0e131d; --desk-ink: #e9edf5;
+  --face: #232c3f; --paper: #1a2130;
+  --ink: #e9edf5; --muted: #a8b2c7; --label: #a8b2c7; --struck: #8792a8;
+  --line: #3a4660; --line-soft: #2f3a52;
+  --bevel-light: transparent; --bevel-dark: transparent;
+
+  --title: #aab9ff; --on-title: #0e131d; --link: #aab9ff;
+  --hover-bg: #26314a; --hover-ink: #e9edf5;
+
+  --red: #ffb4a8; --green: #9be3b1;
+  --note-bg: #3a3118; --alert-bg: #47201c; --box-bg: #1a2130; --note-paper: #262417; --code-bg: #121824;
+  --disabled-bg: #232c3f; --disabled-ink: #a8b2c7;
+  --ok-bg: #1d4a30; --due-bg: #574a14; --bad-bg: #6a2c25; --overdue-bg: #8f372d; --overdue-row: #2e1d20;
+
+  --t0: #f7b2ad; --t1: #f9d58b; --t2: #f4ec8e; --t3: #a9e0a4; --t4: #9edddd; --t5: #b4c0fa; --t6: #ddb6ec;
+  --tab-ink: #14213d;
+
+  --chart-plot: #121824; --chart-grid: #3a4660; --chart-range: #1d4a30; --chart-select: #2a3653;
+  --series-0: #aab9ff; --series-1: #ff9c8f; --series-2: #6fd6c4;
+
+  --overlay: rgba(0, 0, 0, .6);
+  --close-glyph: "\2715";
+}
+
+/*
+ * ---- shapes shared by every "modern-*" theme ----
+ * Flat surfaces instead of bevels, rounded corners, larger touch targets.
+ * The binder itself is unchanged: coloured tabs, and a page that takes its tab's colour.
+ */
+[data-theme^="modern"] :focus-visible { outline: 2px solid var(--title); outline-offset: 2px; }
+
+[data-theme^="modern"] .window { background: transparent; border: 0; box-shadow: none; padding: 0; }
+[data-theme^="modern"] .window.app { box-shadow: none; padding: 8px; }
+[data-theme^="modern"] .window.dialog, [data-theme^="modern"] .window.signin {
+  background: var(--paper); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(10, 20, 40, .28); overflow: hidden;
+}
+[data-theme^="modern"] .titlebar { background: transparent; color: var(--ink); border-bottom: 0; min-height: 0; align-items: center; flex-direction: row-reverse; padding: 4px 4px 0; }
+[data-theme^="modern"] .titlebar .title { text-align: left; padding: 0; font-size: 17px; }
+[data-theme^="modern"] .dialog .titlebar, [data-theme^="modern"] .signin .titlebar { padding: 10px 10px 10px 16px; border-bottom: 1px solid var(--line); }
+[data-theme^="modern"] span.sysbtn { display: none; }
+[data-theme^="modern"] button.sysbtn { width: 36px; height: 36px; flex: none; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); font-weight: normal; }
+
+[data-theme^="modern"] .menubar { background: transparent; border-bottom: 0; padding: 8px 4px; gap: 8px; }
+[data-theme^="modern"] .statusbar { border-top: 0; color: var(--muted); padding: 10px 4px 2px; font-size: 13px; }
+[data-theme^="modern"] .statusbar span { border: 0; padding: 0 10px 0 0; }
+
+[data-theme^="modern"] .btn { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; box-shadow: none; font-weight: 600; min-height: 40px; padding: 6px 14px; }
+[data-theme^="modern"] .btn:hover:not(:disabled) { border-color: var(--muted); }
+[data-theme^="modern"] .btn:active:not(:disabled) { box-shadow: none; padding: 6px 14px; background: var(--face); }
+[data-theme^="modern"] .btn.default { background: var(--title); color: var(--on-title); border: 1px solid var(--title); }
+[data-theme^="modern"] .btn.default:active:not(:disabled) { background: var(--title); opacity: .85; }
+[data-theme^="modern"] .btn.small { min-height: 36px; padding: 4px 12px; font-size: 14px; }
+[data-theme^="modern"] .btn:disabled { color: var(--muted); text-shadow: none; opacity: .6; }
+
+[data-theme^="modern"] input[type="text"], [data-theme^="modern"] input[type="password"], [data-theme^="modern"] input[type="number"],
+[data-theme^="modern"] input[type="date"], [data-theme^="modern"] input[type="datetime-local"], [data-theme^="modern"] input:not([type]),
+[data-theme^="modern"] select, [data-theme^="modern"] textarea {
+  border: 1px solid var(--line); border-radius: 8px; box-shadow: none; min-height: 40px; padding: 6px 10px;
+}
+[data-theme^="modern"] .field label { font-weight: 600; }
+[data-theme^="modern"] .notice, [data-theme^="modern"] .secret, [data-theme^="modern"] .totals, [data-theme^="modern"] .strike-box,
+[data-theme^="modern"] .markdown blockquote, [data-theme^="modern"] .markdown pre, [data-theme^="modern"] .token { border-radius: 8px; border-color: var(--line); }
+
+[data-theme^="modern"] .reminders { border-color: var(--line); border-radius: 10px; margin: 4px 0 10px; padding: 10px 14px; }
+[data-theme^="modern"] .reminders h2 { font-size: 16px; }
+[data-theme^="modern"] .patient-strip { background: transparent; padding: 6px 4px 14px; }
+[data-theme^="modern"] .patient-strip h1 { font-size: 24px; }
+[data-theme^="modern"] .patient-strip p { font-size: 14px; color: var(--muted); }
+
+[data-theme^="modern"] .binder { padding: 0; }
+[data-theme^="modern"] .tabs { gap: 4px; padding: 0 4px 0 0; align-items: flex-end; scrollbar-width: none; }
+[data-theme^="modern"] .tabs::-webkit-scrollbar { display: none; }
+[data-theme^="modern"] .tab { border: 0; border-radius: 10px 10px 0 0; box-shadow: none; margin-top: 0; padding: 0 16px; min-height: 44px; font-size: 14px; font-weight: 600; }
+[data-theme^="modern"] .tab.active { min-height: 52px; padding: 0 20px; top: 0; font-weight: 700; }
+[data-theme^="modern"] .page { border: 0; border-top: 8px solid var(--tab, var(--face)); outline: 0; border-radius: 0 12px 12px 12px; box-shadow: 0 1px 2px rgba(10, 20, 40, .14); padding: 16px 14px; }
+[data-theme^="modern"] .page.solo { border-radius: 12px; margin: 8px 0; }
+[data-theme^="modern"] .page-title { font-size: 20px; border-bottom: 0; padding-bottom: 0; margin-bottom: 12px; }
+
+[data-theme^="modern"] .section-head { background: transparent; border: 0; border-bottom: 1px solid var(--line); padding: 6px 0; }
+[data-theme^="modern"] .section-head h3 { font-size: 16px; }
+[data-theme^="modern"] .grid tr { border-color: var(--line); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+[data-theme^="modern"] .grid th { box-shadow: none; border-color: var(--line-soft); font-weight: 600; }
+/* Keep the main button readable when its table row is under the pointer. */
+[data-theme^="modern"] .grid:not(.plain) tbody tr:hover .btn.default { color: var(--on-title); }
+[data-theme^="modern"] .status, [data-theme^="modern"] .flag { border: 0; border-radius: 999px; padding: 1px 10px; }
+
+[data-theme^="modern"] .obs, [data-theme^="modern"] .obs-readout { border-color: var(--line); border-radius: 10px; overflow: hidden; }
+[data-theme^="modern"] .obs-readout { padding: 10px 14px; }
+[data-theme^="modern"] .oor { border-radius: 999px; padding: 0 8px; }
+[data-theme^="modern"] .obs-tip { border-radius: 6px; }
+[data-theme^="modern"] .box { border-color: var(--line); border-radius: 10px; box-shadow: none; padding: 8px 14px 12px; }
+[data-theme^="modern"] .box.alert { border-color: var(--red); }
+[data-theme^="modern"] .note, [data-theme^="modern"] .chart, [data-theme^="modern"] .theme-card, [data-theme^="modern"] .theme-preview { border-radius: 8px; border-color: var(--line); }
+[data-theme^="modern"] .logo { border: 0; border-radius: 8px; }
+[data-theme^="modern"] .dialog-body { padding: 16px; }
+[data-theme^="modern"] .dialog-body h4, [data-theme^="modern"] .markdown h3 { border-bottom: 1px solid var(--line); }
+[data-theme^="modern"] .signin .form { padding: 16px; }
+
+@media (min-width: 900px) {
+  [data-theme^="modern"] .window.app { padding: 0; }
+  [data-theme^="modern"] .page { padding: 22px 24px; }
+}
+@media print {
+  [data-theme^="modern"] .page { border-top: 0; border-radius: 0; padding: 0; }
+  [data-theme^="modern"] .window.app { padding: 0; }
+}

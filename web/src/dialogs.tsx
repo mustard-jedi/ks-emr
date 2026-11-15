@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { api, fmtDateTime, pretty, type Meta, type Patient, type Rec, type User } from './api';
+import { api, fmtDateTime, pretty, type Meta, type Patient, type Rec, type UnitSystem, type User } from './api';
+import { ReminderSettingsForm } from './reminders';
+import { AUTO, THEMES } from './theme';
 import { RecordForm } from './records';
 import { Dialog, ErrorLine, Markdown, useAction, useLoad } from './ui';
 
@@ -22,7 +24,7 @@ export function SignIn({ setup, onDone }: { setup: boolean; onDone: () => void }
   return (
     <div className="desktop center">
       <div className="window signin">
-        <div className="titlebar"><span className="sysbtn" aria-hidden="true">&#x2500;</span><span className="title">{setup ? 'KS EMR Setup' : 'KS EMR - Sign In'}</span></div>
+        <div className="titlebar"><span className="sysbtn" aria-hidden="true"></span><span className="title">{setup ? 'KS EMR Setup' : 'KS EMR - Sign In'}</span></div>
         <form className="form single" onSubmit={submit}>
           <div className="brand full"><span className="logo" aria-hidden="true">+</span><div><strong>KS EMR</strong><br /><small>KnightSoft Electronic Medical Record</small></div></div>
           {setup && <p className="full">Welcome. Create the first account. It becomes the <strong>owner</strong>, who can add accounts for the rest of the family.</p>}
@@ -71,14 +73,70 @@ export function ForcePassword({ onDone }: { onDone: () => void }) {
   return (
     <div className="desktop center">
       <div className="window signin">
-        <div className="titlebar"><span className="sysbtn" aria-hidden="true">&#x2500;</span><span className="title">Choose a Password</span></div>
+        <div className="titlebar"><span className="sysbtn" aria-hidden="true"></span><span className="title">Choose a Password</span></div>
         <PasswordForm forced onDone={onDone} />
       </div>
     </div>
   );
 }
 
-export function AccountDialog({ user, onClose }: { user: User; onClose: () => void }) {
+type Settings = Partial<Pick<User, 'unit_system' | 'temperature_unit' | 'theme'>>;
+
+/** A miniature binder drawn with one theme's tokens: the wrapper carries that theme's data-theme. */
+function ThemePreview({ ids }: { ids: string[] }) {
+  return (
+    <span className="theme-preview" aria-hidden="true">
+      {ids.map((id) => (
+        <span className="tp" data-theme={id} key={id}>
+          <span className="tp-tabs"><i /><i /><i /></span>
+          <span className="tp-page"><b /><b /></span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function DisplaySettings({ user, onSetting }: { user: User; onSetting: (s: Settings) => Promise<void> }) {
+  const act = useAction();
+  const choice = user.theme === AUTO || THEMES.some((t) => t.id === user.theme) ? user.theme : AUTO;
+  const options = [
+    { id: AUTO, label: 'Match device', description: 'Modern light, or Modern dark when your device is in dark mode.', preview: ['modern-light', 'modern-dark'] },
+    ...THEMES.map((t) => ({ id: t.id, label: t.label, description: t.description, preview: [t.id] })),
+  ];
+  const save = (s: Settings) => void act.run(() => onSetting(s));
+  return (
+    <>
+      <h4>Theme</h4>
+      <p className="muted">Changes only how KS EMR looks for you. It is remembered on your account.</p>
+      <fieldset className="theme-grid">
+        {options.map((o) => (
+          <label key={o.id} className={`theme-card${choice === o.id ? ' selected' : ''}`}>
+            <ThemePreview ids={o.preview} />
+            <span className="check"><input type="radio" name="theme" checked={choice === o.id} onChange={() => save({ theme: o.id })} /> {o.label}</span>
+            <small>{o.description}</small>
+          </label>
+        ))}
+      </fieldset>
+      <h4>Units</h4>
+      <div className="form">
+        <div className="field"><label htmlFor="set-units">Weight, height and glucose</label>
+          <select id="set-units" value={user.unit_system} onChange={(e) => save({ unit_system: e.target.value as User['unit_system'] })}>
+            <option value="metric">Metric (kg, cm, mmol/L)</option>
+            <option value="imperial">Imperial (lb, in, mg/dL)</option>
+          </select></div>
+        <div className="field"><label htmlFor="set-temp">Temperature</label>
+          <select id="set-temp" value={user.temperature_unit} onChange={(e) => save({ temperature_unit: e.target.value as User['temperature_unit'] })}>
+            <option value="auto">Follow the units above</option>
+            <option value="c">Always Celsius (°C)</option>
+            <option value="f">Always Fahrenheit (°F)</option>
+          </select></div>
+      </div>
+      <ErrorLine error={act.error} />
+    </>
+  );
+}
+
+export function AccountDialog({ user, onSetting, onClose }: { user: User; onSetting: (s: Settings) => Promise<void>; onClose: () => void }) {
   const tokens = useLoad(() => api<Rec[]>('GET', '/tokens'), []);
   const [name, setName] = useState('');
   const [readOnly, setReadOnly] = useState(false);
@@ -87,6 +145,8 @@ export function AccountDialog({ user, onClose }: { user: User; onClose: () => vo
   const origin = window.location.origin;
   return (
     <Dialog title={`Account - ${user.display_name}`} onClose={onClose} wide>
+      <DisplaySettings user={user} onSetting={onSetting} />
+      <ReminderSettingsForm />
       <h4>Password</h4>
       <PasswordForm onDone={() => undefined} />
       <h4>API tokens for AI agents and scripts</h4>
@@ -320,7 +380,7 @@ export function ShareDialog({ meta, patient, onClose, onImported }: { meta: Meta
 
 // ---- chart details / new chart -------------------------------------------------
 
-export function PatientDialog({ meta, patient, units, onClose, onSaved }: { meta: Meta; patient?: Patient; units: User['unit_system']; onClose: () => void; onSaved: (p: Patient) => void }) {
+export function PatientDialog({ meta, patient, units, onClose, onSaved }: { meta: Meta; patient?: Patient; units: UnitSystem; onClose: () => void; onSaved: (p: Patient) => void }) {
   return (
     <RecordForm
       title={patient ? `Details - ${patient.full_name}` : 'New Chart (person without their own login)'} fields={meta.patient_fields} record={patient} units={units}

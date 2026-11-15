@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL,              -- owner | member | guest
   unit_system TEXT NOT NULL DEFAULT 'metric',
+  temperature_unit TEXT NOT NULL DEFAULT 'auto',  -- auto (follow unit_system) | c | f
+  theme TEXT NOT NULL DEFAULT 'auto',             -- auto (match device) or a theme id from web/src/theme.ts
   expires_at TEXT,
   disabled INTEGER NOT NULL DEFAULT 0,
   must_change_password INTEGER NOT NULL DEFAULT 0,
@@ -88,6 +90,10 @@ function addMissingColumns(db: Database.Database, table: string, fields: FieldDe
 
 export function migrate(db: Database.Database) {
   db.exec(CORE_SQL);
+  // Per-user display settings added after the first release.
+  const userCols = new Set((db.prepare('PRAGMA table_info(users)').all() as Row[]).map((c) => c.name));
+  if (!userCols.has('temperature_unit')) db.exec("ALTER TABLE users ADD COLUMN temperature_unit TEXT NOT NULL DEFAULT 'auto'");
+  if (!userCols.has('theme')) db.exec("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'auto'");
   addMissingColumns(db, 'patients', PATIENT_FIELDS);
   for (const t of RECORD_TYPES) {
     db.exec(`CREATE TABLE IF NOT EXISTS ${t.key} (

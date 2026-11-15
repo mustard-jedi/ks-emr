@@ -1,3 +1,4 @@
+import { dueReminders } from './reminders.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { localToday, VERSION } from './config.js';
@@ -43,6 +44,12 @@ export function buildTools(): Tool[] {
       description: 'List every medication dose scheduled for one day, with its dose_id and status (due, given, missed, refused, held).',
       inputSchema: obj({ patient_id: PATIENT_ID, date: { type: 'string', description: 'Day to list. Format: YYYY-MM-DD. Default: today.' } }, ['patient_id']),
       run: (actor, a) => getMar(actor, requireInt(a.patient_id, 'patient_id'), a.date ? String(a.date) : undefined),
+    },
+    {
+      name: 'list_due_reminders', writes: false,
+      description: 'List what needs doing right now across all charts: medication doses that are due and not yet recorded, and monitoring checks that are due (e.g. "Check temperature").',
+      inputSchema: obj({}, []),
+      run: (actor) => dueReminders(actor),
     },
     {
       name: 'record_dose', writes: true,

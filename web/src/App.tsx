@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, HttpError, pretty, type Meta, type Patient, type User } from './api';
+import { api, HttpError, pretty, unitsOf, type Meta, type Patient, type User } from './api';
 import { AccountDialog, FamilyDialog, ForcePassword, HelpDialog, PatientDialog, ShareDialog, SignIn } from './dialogs';
 import { canSee } from './records';
 import { FaceSheet, HistoryTab, LabsTab, MedsTab, NotesTab, VisitsTab, VitalsTab, type TabProps } from './tabs';
+import { ReminderBar, useReminders, type DueReminder } from './reminders';
+import { useTheme } from './theme';
 import { ErrorLine, useLoad } from './ui';
 
 const TAB_VIEWS: Record<string, (p: TabProps) => React.ReactNode> = {
@@ -43,6 +45,10 @@ export function App() {
   const goTab = useCallback((key: string) => { setTab(key); remember('ks.tab', key); window.scrollTo({ top: 0 }); }, []);
   const pickPatient = useCallback((id: number) => { setPatientId(id); remember('ks.patient', String(id)); }, []);
 
+  const theme = useTheme(session?.user.theme);
+  const reminders = useReminders(phase === 'ready' && !!session && session.user.role !== 'guest' && !session.user.must_change_password, refreshKey);
+  const unitSystem = session?.user.unit_system, temperatureUnit = session?.user.temperature_unit;
+  const units = useMemo(() => unitsOf({ unit_system: unitSystem || 'metric', temperature_unit: temperatureUnit || 'auto' }), [unitSystem, temperatureUnit]);
   const patient = useMemo(() => session?.patients.find((p) => p.id === patientId) || session?.patients[0], [session, patientId]);
   const counts = useLoad(
     () => (patient ? api<Record<string, number>>('GET', `/patients/${patient.id}/counts`) : Promise.resolve({} as Record<string, number>)),
@@ -70,18 +76,23 @@ export function App() {
   const View = TAB_VIEWS[active];
   const tabIndex = meta.tabs.findIndex((t) => t.key === active);
 
-  const toggleUnits = async () => {
-    const next = user.unit_system === 'metric' ? 'imperial' : 'metric';
-    const r = await api<{ user: User }>('PATCH', '/me', { unit_system: next });
-    setSession({ ...session, user: r.user });
+  const setUser = (u: User) => setSession({ ...session, user: u });
+  const saveSetting = async (patch: Partial<Pick<User, 'unit_system' | 'temperature_unit' | 'theme'>>) => {
+    setUser({ ...user, ...patch }); // show it at once; the server copy follows
+    setUser((await api<{ user: User }>('PATCH', '/me', patch)).user);
   };
+  const toggleUnits = () => saveSetting({ unit_system: user.unit_system === 'metric' ? 'imperial' : 'metric' });
+  // Quick switch between the light and dark modern themes. Classic and "match device" are chosen under Account.
+  const toggleDark = () => saveSetting({ theme: theme.scheme === 'dark' ? 'modern-light' : 'modern-dark' });
+  const openReminder = (a: DueReminder) => { pickPatient(a.patient_id); goTab(a.tab); };
+  const doneReminder = async (a: DueReminder) => { await api('POST', `/patients/${a.patient_id}/reminders/${a.record_id}/done`); changed(); };
   const signOut = async () => { await api('POST', '/logout'); setSession(null); setPhase('signin'); };
 
   return (
     <div className="desktop">
       <div className="window app">
         <div className="titlebar no-print">
-          <span className="sysbtn" aria-hidden="true">&#x2500;</span>
+          <span className="sysbtn" aria-hidden="true"></span>
           <span className="title">KS EMR{patient ? ` - [${patient.full_name}]` : ''}</span>
         </div>
         <nav className="menubar no-print" aria-label="Main">
@@ -96,12 +107,17 @@ export function App() {
           <button className="btn small" onClick={toggleUnits} title="Switch between metric and imperial units">
             Units: <strong>{user.unit_system === 'metric' ? 'Metric' : 'Imperial'}</strong>
           </button>
+          <button className="btn small" onClick={toggleDark} title="Switch between the light and dark themes">
+            Theme: <strong>{theme.scheme === 'dark' ? 'Dark' : 'Light'}</strong>
+          </button>
           {patient?.access_level === 'manager' && <button className="btn small" onClick={() => setDialog('share')}>Share&hellip;</button>}
           {!guest && <button className="btn small" onClick={() => setDialog('account')}>Account&hellip;</button>}
           {user.role === 'owner' && <button className="btn small" onClick={() => setDialog('family')}>Family&hellip;</button>}
           <button className="btn small" onClick={() => setDialog('help')}>Help</button>
           <button className="btn small" onClick={signOut}>Sign out</button>
         </nav>
+
+        <ReminderBar alerts={reminders.alerts} onOpen={openReminder} onDone={(a) => void doneReminder(a)} onSnooze={reminders.snooze} />
 
         {!patient ? (
           <div className="page solo">
@@ -134,7 +150,7 @@ export function App() {
               </div>
               <main className={`page tab-${tabIndex}`} role="tabpanel">
                 <h2 className="page-title">{meta.tabs[tabIndex].label}</h2>
-                <View key={`${patient.id}-${active}`} meta={meta} patient={patient} units={user.unit_system} refreshKey={refreshKey} onChanged={changed} goTab={goTab} />
+                <View key={`${patient.id}-${active}`} meta={meta} patient={patient} units={units} refreshKey={refreshKey} onChanged={changed} goTab={goTab} />
               </main>
             </div>
           </>
@@ -146,15 +162,15 @@ export function App() {
         </footer>
       </div>
 
-      {dialog === 'account' && <AccountDialog user={user} onClose={() => setDialog(null)} />}
+      {dialog === 'account' && <AccountDialog user={user} onSetting={saveSetting} onClose={() => setDialog(null)} />}
       {dialog === 'family' && <FamilyDialog me={user} onClose={() => setDialog(null)} />}
       {dialog === 'help' && <HelpDialog onClose={() => setDialog(null)} />}
       {dialog === 'share' && patient && <ShareDialog meta={meta} patient={patient} onClose={() => setDialog(null)} onImported={load} />}
       {dialog === 'details' && patient && (
-        <PatientDialog meta={meta} patient={patient} units={user.unit_system} onClose={() => setDialog(null)} onSaved={() => { void load(); changed(); }} />
+        <PatientDialog meta={meta} patient={patient} units={units} onClose={() => setDialog(null)} onSaved={() => { void load(); changed(); }} />
       )}
       {dialog === 'new-chart' && (
-        <PatientDialog meta={meta} units={user.unit_system} onClose={() => setDialog(null)} onSaved={(p) => { pickPatient(p.id); goTab('face'); void load(); }} />
+        <PatientDialog meta={meta} units={units} onClose={() => setDialog(null)} onSaved={(p) => { pickPatient(p.id); goTab('face'); void load(); }} />
       )}
     </div>
   );

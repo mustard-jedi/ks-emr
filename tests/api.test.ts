@@ -14,7 +14,7 @@ process.env.NODE_ENV = 'test';
 const { createApp } = await import('../server/src/app.js');
 const { getDb, openDb, setDb } = await import('../server/src/db.js');
 const { backupTo, restoreFrom } = await import('../server/src/backup.js');
-const { localToday } = await import('../server/src/config.js');
+const { localNow, localToday } = await import('../server/src/config.js');
 
 let server: Server;
 let base = '';
@@ -138,6 +138,93 @@ test('a prescription generates due doses; recording and stopping work', async ()
   assert.ok((await owner('GET', `/api/patients/${ownerChart}/mar?date=${today}`)).body.doses.some((d: any) => d.dose_status === 'given'));
 });
 
+test('dose times: suggested per frequency, freely overridden; a recorded dose can be undone', async () => {
+  const today = localToday();
+  const url = `/api/patients/${ownerChart}/prescriptions`;
+  // No times given: the suggestion for the frequency is stored, so it is visible and editable.
+  const tid = await owner('POST', url, { medication_name: 'Amoxicillin 500 mg', frequency: 'three_times_daily' });
+  assert.equal(tid.body.schedule_times, '06:00,14:00,22:00');
+  // Any times may be typed instead, in 24-hour or am/pm form.
+  const custom = await owner('PATCH', `${url}/${tid.body.id}`, { schedule_times: '7am, 3pm, 11pm' });
+  assert.equal(custom.body.schedule_times, '07:00,15:00,23:00');
+  let doses = (await owner('GET', `/api/patients/${ownerChart}/mar?date=${today}`)).body.doses.filter((d: any) => d.prescription_id === tid.body.id);
+  assert.deepEqual(doses.map((d: any) => d.scheduled_at.slice(11)), ['07:00', '15:00', '23:00']);
+  // Changing the frequency keeps times someone typed...
+  assert.equal((await owner('PATCH', `${url}/${tid.body.id}`, { frequency: 'twice_daily' })).body.schedule_times, '07:00,15:00,23:00');
+  // ...but replaces times that were only a suggestion.
+  const plain = await owner('POST', url, { medication_name: 'Vitamin D', frequency: 'once_daily' });
+  assert.equal((await owner('PATCH', `${url}/${plain.body.id}`, { frequency: 'twice_daily' })).body.schedule_times, '08:00,20:00');
+  assert.equal((await owner('PATCH', `${url}/${plain.body.id}`, { schedule_times: '25:00' })).status, 400);
+
+  // Undo a misclick: back to due, with who/when cleared; the audit log keeps the earlier values.
+  doses = (await owner('GET', `/api/patients/${ownerChart}/mar?date=${today}`)).body.doses.filter((d: any) => d.prescription_id === plain.body.id);
+  const doseUrl = `/api/patients/${ownerChart}/med_doses/${doses[0].id}`;
+  assert.equal((await owner('PATCH', doseUrl, { dose_status: 'given' })).body.given_by, 'Dad Knight');
+  const undone = await owner('PATCH', doseUrl, { dose_status: 'due' });
+  assert.equal(undone.body.dose_status, 'due');
+  assert.equal(undone.body.given_at, null);
+  assert.equal(undone.body.given_by, null);
+  const log = (await owner('GET', `/api/patients/${ownerChart}/audit`)).body;
+  assert.ok(log.some((e: any) => e.action === 'update' && String(e.detail).includes('"dose_status":"given"')));
+  for (const id of [tid.body.id, plain.body.id]) await owner('PATCH', `${url}/${id}`, { prescription_status: 'stopped' });
+});
+
+test('care reminders: due doses and monitoring checks are reported, and clear when acted on', async () => {
+  const due = async () => (await owner('GET', '/api/reminders/due')).body.reminders.filter((r: any) => r.patient_id === ownerChart);
+  const before = (await due()).length;
+  const hourAgo = localNow(new Date(Date.now() - 50 * 60_000)); // every 30 min from 50 min ago: the round 20 min ago is due
+
+  // A dose scheduled for this minute is due now; recording it clears the reminder.
+  const rx = await owner('POST', `/api/patients/${ownerChart}/prescriptions`, { medication_name: 'Paracetamol 500 mg', dose_amount: 1, dose_unit: 'tablet', frequency: 'once_daily', schedule_times: localNow().slice(11) });
+  let list = await due();
+  const dose = list.find((r: any) => r.kind === 'dose' && r.title === 'Give Paracetamol 500 mg');
+  assert.ok(dose);
+  assert.equal(dose.tab, 'meds');
+  assert.equal(dose.detail, '1 tablet');
+  await owner('PATCH', `/api/patients/${ownerChart}/med_doses/${dose.record_id}`, { dose_status: 'given' });
+  assert.ok(!(await due()).some((r: any) => r.key === dose.key));
+  await owner('PATCH', `/api/patients/${ownerChart}/prescriptions/${rx.body.id}`, { prescription_status: 'stopped' });
+
+  // A vitals check every 30 minutes that started an hour ago is due; adding vital signs satisfies it.
+  const url = `/api/patients/${ownerChart}/reminders`;
+  assert.equal((await owner('POST', url, { title: 'Too often', interval_minutes: 1 })).status, 400);
+  const vit = await owner('POST', url, { title: 'Check temperature', interval_minutes: 30, start_at: hourAgo });
+  assert.equal(vit.status, 201);
+  assert.equal(vit.body.check_type, 'vital_signs');
+  const other = await owner('POST', url, { title: 'Turn in bed', check_type: 'other', interval_minutes: 30, start_at: hourAgo });
+  const notYet = await owner('POST', url, { title: 'Later', interval_minutes: 240 });
+  list = await due();
+  assert.equal(list.length, before + 2);
+  const check = list.find((r: any) => r.record_id === vit.body.id);
+  assert.equal(check.kind, 'check');
+  assert.ok(check.overdue_minutes >= 19 && check.overdue_minutes <= 21);
+  // Rounds are fixed: an extra check well before the round does not count for it, and a weight-only entry is not a check.
+  await owner('POST', `/api/patients/${ownerChart}/vitals`, { temperature_c: 37.5, recorded_at: localNow(new Date(Date.now() - 45 * 60_000)) });
+  await owner('POST', `/api/patients/${ownerChart}/vitals`, { weight_kg: 80 });
+  assert.ok((await due()).some((r: any) => r.record_id === vit.body.id));
+  await owner('POST', `/api/patients/${ownerChart}/vitals`, { temperature_c: 37.9 });
+  assert.ok(!(await due()).some((r: any) => r.record_id === vit.body.id));
+
+  // A hand-marked check is cleared with "done", and a stopped reminder never alerts.
+  assert.equal((await owner('POST', `${url}/${other.body.id}/done`)).status, 200);
+  assert.equal((await due()).length, before);
+  for (const id of [vit.body.id, other.body.id, notYet.body.id]) await owner('PATCH', `${url}/${id}`, { reminder_status: 'stopped' });
+});
+
+test('display settings: theme and temperature unit are per user', async () => {
+  const me = (await owner('GET', '/api/me')).body.user;
+  assert.equal(me.theme, 'auto');
+  assert.equal(me.temperature_unit, 'auto');
+  const set = await owner('PATCH', '/api/me', { theme: 'modern-dark', temperature_unit: 'c', unit_system: 'imperial' });
+  assert.deepEqual([set.body.user.theme, set.body.user.temperature_unit, set.body.user.unit_system], ['modern-dark', 'c', 'imperial']);
+  assert.equal((await owner('PATCH', '/api/me', { theme: 'Not A Theme!' })).status, 400);
+  assert.equal((await owner('PATCH', '/api/me', { temperature_unit: 'kelvin' })).status, 400);
+  // Family history needs only the relative and the condition: no dates.
+  const fh = await owner('POST', `/api/patients/${ownerChart}/family_history`, { relation: 'mother', condition: 'Asthma' });
+  assert.equal(fh.status, 201);
+  await owner('PATCH', '/api/me', { theme: 'auto', temperature_unit: 'auto', unit_system: 'metric' });
+});
+
 test('charts are private until shared, even from the owner', async () => {
   const made = await owner('POST', '/api/users', { username: 'mom', display_name: 'Mom Knight', password: PASSWORD });
   assert.equal(made.status, 200);
@@ -182,6 +269,10 @@ test('physician share: expiring, read-only, limited to chosen sections, revocabl
   assert.equal((await doc('POST', '/api/patients', { full_name: 'Nope' })).status, 403);
   assert.equal((await doc('POST', '/api/tokens', { name: 'x' })).status, 403);
   assert.equal((await doc('GET', `/api/patients/${kidChart}/export`)).status, 403);
+  // Reminders are prompts to act, so a read-only guest gets none.
+  await mom('POST', `/api/patients/${kidChart}/reminders`, { title: 'Change dressing', check_type: 'other', interval_minutes: 30, start_at: localNow(new Date(Date.now() - 3600_000)) });
+  assert.ok((await mom('GET', '/api/reminders/due')).body.reminders.some((r: any) => r.patient_id === kidChart));
+  assert.deepEqual((await doc('GET', '/api/reminders/due')).body.reminders, []);
 
   const log = (await mom('GET', `/api/patients/${kidChart}/audit`)).body;
   assert.ok(log.some((l: any) => l.action === 'guest_view' && l.user_name === 'Dr. Patel'));
@@ -233,6 +324,7 @@ test('API tokens and MCP: tools are listed, called, and respect read-only', asyn
 
   const tools = (await rpc(full, 'tools/list', {})).result.tools;
   const names = tools.map((t: any) => t.name);
+  assert.ok(names.includes('list_due_reminders') && names.includes('add_reminder'));
   for (const n of ['list_patients', 'get_patient_summary', 'add_vital_signs', 'list_lab_results', 'record_dose']) assert.ok(names.includes(n), n);
   // Every tool input is a flat object of simple types.
   for (const t of tools) {
