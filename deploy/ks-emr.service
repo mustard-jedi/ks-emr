@@ -1,0 +1,32 @@
+# systemd unit for KS EMR: an alternative to PM2. Use one or the other, not both.
+#
+#   sudo useradd --system --home /opt/ks-emr --shell /usr/sbin/nologin ksemr
+#   sudo chown -R ksemr:ksemr /opt/ks-emr
+#   sudo cp deploy/ks-emr.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now ks-emr
+#   journalctl -u ks-emr -f
+
+[Unit]
+Description=KS EMR (KnightSoft Electronic Medical Record)
+After=network.target
+
+[Service]
+Type=simple
+User=ksemr
+Group=ksemr
+WorkingDirectory=/opt/ks-emr
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/server/index.js
+Restart=on-failure
+RestartSec=3
+
+# Hardening: the service can only write to its own data and backups folders.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ks-emr/data /opt/ks-emr/backups
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

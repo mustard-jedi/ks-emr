@@ -1,0 +1,48 @@
+{
+  "name": "ks-emr",
+  "version": "0.1.0",
+  "description": "KS EMR (KnightSoft EMR) - a family electronic medical record modelled on the hospital paper chart",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "ks-emr": "dist/server/cli.js",
+    "ks-emr-mcp": "dist/server/mcp-stdio.js"
+  },
+  "scripts": {
+    "dev": "tsx watch server/src/index.ts",
+    "dev:web": "vite",
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p server/tsconfig.json",
+    "build:web": "vite build",
+    "start": "node dist/server/index.js",
+    "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "cli": "node dist/server/cli.js",
+    "backup": "node dist/server/cli.js backup",
+    "restore": "node dist/server/cli.js restore",
+    "mcp": "node dist/server/mcp-stdio.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "better-sqlite3": "^13.2.0",
+    "express": "^5.3.0",
+    "helmet": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}
