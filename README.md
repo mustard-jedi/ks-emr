@@ -58,37 +58,77 @@ Run the tests:
 npm test
 ```
 
-## Deploying on Linux
+## Installing on macOS or Linux
 
-1. Install Node.js 20+, git and [Caddy](https://caddyserver.com/docs/install).
-2. Clone the repository on the server, for example into `/opt/ks-emr`.
-3. Create the settings file and edit it (at least `KS_PUBLIC_URL` and `TZ`):
+Needs Node.js 20 or newer and git. On a Mac: `brew install node git`.
 
-   ```bash
-   cp .env.example .env
-   ```
-
-4. Run the deploy script. It installs PM2 if needed, builds, and starts the service:
-
-   ```bash
-   ./deploy/deploy.sh
-   ```
-
-5. Make it start at boot (run the command that PM2 prints):
-
-   ```bash
-   pm2 startup
-   ```
-
-6. Put HTTPS in front: edit the domain in [deploy/Caddyfile](deploy/Caddyfile), copy it to `/etc/caddy/Caddyfile`, and reload Caddy. Caddy obtains and renews the certificate automatically. Ports 80 and 443 must be open; port 4700 must **not** be exposed (the app listens on 127.0.0.1 only).
-
-**Updating** is the same script. It takes a plain-text backup, pulls from GitHub, installs dependencies, builds, removes build-only packages, reloads PM2 and checks that the service answers:
+One line installs into `~/ks-emr` on port 4700, builds the app and starts it under [PM2](https://pm2.keymetrics.io):
 
 ```bash
-./deploy/deploy.sh
+curl -fsSL https://raw.githubusercontent.com/mustard-jedi/ks-emr/main/deploy/install.sh | bash
 ```
 
-Prefer systemd to PM2? Use [deploy/ks-emr.service](deploy/ks-emr.service) instead; instructions are in the file.
+Choose the folder and the port:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mustard-jedi/ks-emr/main/deploy/install.sh | bash -s -- --dir ~/web-apps/ks-emr --port 4800
+```
+
+| Option | Meaning | Default |
+|---|---|---|
+| `--dir <folder>` | Where to install | `~/ks-emr` |
+| `--port <number>` | Port to listen on | `4700` |
+| `--url <address>` | Address people will type (used in physician share links) | `http://localhost:<port>` |
+| `--label <text>` | Title-bar label for an install that does not hold real records | none |
+| `--name <name>` | PM2 process name, when running more than one install | `ks-emr` |
+
+The installer writes the settings to `.env` in the install folder (it never overwrites an existing one), then runs `deploy/deploy.sh`. Open `http://localhost:<port>` on that machine and create the owner account.
+
+To change the port or any other setting later, edit `.env` and run `./deploy/deploy.sh` again.
+
+**Start at boot (once).** Run this, then run the command it prints:
+
+```bash
+pm2 startup
+```
+
+**Updating** takes a plain-text backup, pulls from GitHub, installs dependencies, builds, removes build-only packages, reloads PM2 and checks that the service answers:
+
+```bash
+~/ks-emr/deploy/deploy.sh
+```
+
+### Reaching it from other devices
+
+The app listens on the machine itself only (`127.0.0.1`). Put one of these in front; do not expose the port directly.
+
+**Tailscale (private, works behind CGNAT).** With [Tailscale](https://tailscale.com) installed and signed in on the machine, this serves the app over HTTPS to your own devices at `https://<machine>.<tailnet>.ts.net`:
+
+```bash
+tailscale serve --bg 4800
+```
+
+Then set `KS_PUBLIC_URL` in `.env` to that address and run `./deploy/deploy.sh`. It needs MagicDNS and HTTPS certificates enabled for the tailnet, and it comes back by itself after a restart. People outside your tailnet (a physician with a temporary login) cannot reach it this way.
+
+**Caddy (public, on a server with its own address).** Install [Caddy](https://caddyserver.com/docs/install), edit the domain and port in [deploy/Caddyfile](deploy/Caddyfile), copy it to `/etc/caddy/Caddyfile` and reload Caddy. Caddy obtains and renews the certificate automatically. Ports 80 and 443 must be open.
+
+### Notes for a Mac
+
+- A sleeping Mac serves nothing and sends no reminders. For an always-on install, turn off sleep in System Settings (Energy), or use a Mac that stays awake.
+- Turn on FileVault: the app does not encrypt the database itself.
+- The systemd unit in [deploy/ks-emr.service](deploy/ks-emr.service) is for Linux only; on a Mac, PM2 does that job.
+
+### Two installs on one machine
+
+A production install and a development one can run side by side: give each its own folder and port. Each has its own `.env`, database and sign-in (the cookie name includes the port), and they do not share data. Mark the one without real records so it is never mistaken for the other:
+
+```
+KS_ENV_LABEL=DEV - demo data
+```
+
+To move records from one install to another, use `npm run backup` on one, `npm run restore` on the other, and copy `data/attachments`.
+
+Prefer systemd to PM2 on Linux? Use [deploy/ks-emr.service](deploy/ks-emr.service) instead; instructions are in the file.
 
 ### Settings (`.env`)
 
@@ -98,8 +138,11 @@ Prefer systemd to PM2? Use [deploy/ks-emr.service](deploy/ks-emr.service) instea
 | `HOST` | `127.0.0.1` | Address to bind. Keep it local behind a proxy. |
 | `KS_DATA_DIR` | `./data` | Database and uploaded files. |
 | `KS_PUBLIC_URL` | `http://localhost:4700` | Address shown in physician share details. |
-| `NODE_ENV` | | Set to `production` on the server (HTTPS-only cookies). |
+| `NODE_ENV` | | Set to `production` on the server: sign-in cookies become HTTPS-only, except when opened as `http://localhost` on the machine itself. |
 | `TZ` | system | Timezone for medication schedules and "now". |
+| `KS_ENV_LABEL` | | Short label shown in the title bar, to mark an install without real records. |
+| `KS_PM2_NAME` | `ks-emr` | PM2 process name. |
+| `KS_COOKIE_NAME` | `ks_session_<PORT>` | Sign-in cookie name. |
 
 ## Backup and restore
 
@@ -161,7 +204,7 @@ web/src/                    React web app (Vite)
 web/src/styles.css          structure, plus the classic theme's tokens
 web/src/themes.css          the other themes; web/src/theme.ts lists them
 tests/api.test.ts           end-to-end API tests
-deploy/                     deploy script, Caddyfile, systemd unit
+deploy/                     installer, deploy script, Caddyfile, systemd unit
 ```
 
 To add a field or a whole new chart section, edit `recordTypes.ts`; the database column, API, MCP tool and form follow from it.

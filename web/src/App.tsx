@@ -22,6 +22,7 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
+  const [envLabel, setEnvLabel] = useState('');
   const [patientId, setPatientId] = useState<number | null>(() => Number(recall('ks.patient')) || null);
   const [tab, setTab] = useState(() => recall('ks.tab') || 'face');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -30,6 +31,7 @@ export function App() {
   const load = useCallback(async () => {
     try {
       const status = await api('GET', '/status');
+      setEnvLabel(status.env_label || '');
       if (status.needs_setup) { setPhase('setup'); return; }
       const [s, m] = await Promise.all([api<Session>('GET', '/me'), api<Meta>('GET', '/meta')]);
       setSession(s);
@@ -57,7 +59,7 @@ export function App() {
 
   if (fatal) return <div className="desktop center"><div className="window signin"><div className="titlebar"><span className="title">KS EMR</span></div><div className="dialog-body"><ErrorLine error={`Cannot reach the server: ${fatal}`} /><button className="btn" onClick={() => { setFatal(null); void load(); }}>Retry</button></div></div></div>;
   if (phase === 'loading') return <div className="desktop center"><p className="loading">Loading KS EMR&hellip;</p></div>;
-  if (phase === 'setup' || phase === 'signin') return <SignIn setup={phase === 'setup'} onDone={load} />;
+  if (phase === 'setup' || phase === 'signin') return <SignIn setup={phase === 'setup'} envLabel={envLabel} onDone={load} />;
   if (!session || !meta) return null;
 
   const { user } = session;
@@ -93,7 +95,7 @@ export function App() {
       <div className="window app">
         <div className="titlebar no-print">
           <span className="sysbtn" aria-hidden="true"></span>
-          <span className="title">KS EMR{patient ? ` - [${patient.full_name}]` : ''}</span>
+          <span className="title">KS EMR{patient ? ` - [${patient.full_name}]` : ''}{envLabel && <span className="env-badge">{envLabel}</span>}</span>
         </div>
         <nav className="menubar no-print" aria-label="Main">
           {session.patients.length > 0 && (

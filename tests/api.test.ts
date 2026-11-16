@@ -10,6 +10,7 @@ import type { Server } from 'node:http';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ks-emr-test-'));
 process.env.KS_DATA_DIR = tmp;
 process.env.NODE_ENV = 'test';
+process.env.KS_ENV_LABEL = 'TEST install';
 
 const { createApp } = await import('../server/src/app.js');
 const { getDb, openDb, setDb } = await import('../server/src/db.js');
@@ -57,6 +58,7 @@ after(() => {
 
 test('first run creates the owner and their chart; setup then locks', async () => {
   assert.equal((await owner('GET', '/api/status')).body.needs_setup, true);
+  assert.equal((await owner('GET', '/api/status')).body.env_label, 'TEST install');
   assert.equal((await owner('POST', '/api/setup', { username: 'dad', display_name: 'Dad Knight', password: 'short' })).status, 400);
   assert.equal((await owner('POST', '/api/setup', { username: 'dad', display_name: 'Dad Knight', password: PASSWORD })).status, 200);
   const me = (await owner('GET', '/api/me')).body;

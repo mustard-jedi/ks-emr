@@ -7,7 +7,7 @@ import { Dialog, ErrorLine, Markdown, useAction, useLoad } from './ui';
 
 // ---- sign in / first-run setup ------------------------------------------------
 
-export function SignIn({ setup, onDone }: { setup: boolean; onDone: () => void }) {
+export function SignIn({ setup, envLabel, onDone }: { setup: boolean; envLabel?: string; onDone: () => void }) {
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -24,7 +24,7 @@ export function SignIn({ setup, onDone }: { setup: boolean; onDone: () => void }
   return (
     <div className="desktop center">
       <div className="window signin">
-        <div className="titlebar"><span className="sysbtn" aria-hidden="true"></span><span className="title">{setup ? 'KS EMR Setup' : 'KS EMR - Sign In'}</span></div>
+        <div className="titlebar"><span className="sysbtn" aria-hidden="true"></span><span className="title">{setup ? 'KS EMR Setup' : 'KS EMR - Sign In'}{envLabel && <span className="env-badge">{envLabel}</span>}</span></div>
         <form className="form single" onSubmit={submit}>
           <div className="brand full"><span className="logo" aria-hidden="true">+</span><div><strong>KS EMR</strong><br /><small>KnightSoft Electronic Medical Record</small></div></div>
           {setup && <p className="full">Welcome. Create the first account. It becomes the <strong>owner</strong>, who can add accounts for the rest of the family.</p>}

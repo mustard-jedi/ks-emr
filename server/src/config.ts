@@ -25,6 +25,10 @@ export const DB_FILE = path.join(DATA_DIR, 'ks-emr.db');
 export const PUBLIC_URL = (process.env.KS_PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 export const WEB_DIR = path.join(ROOT, 'dist', 'web');
 export const MANUAL_FILE = path.join(ROOT, 'docs', 'USER_MANUAL.md');
+/** Session cookie name. It includes the port by default so two installs on one machine (development and production) do not sign each other out: browsers share cookies across ports. */
+export const COOKIE_NAME = /^[A-Za-z0-9_-]{1,40}$/.test(process.env.KS_COOKIE_NAME || '') ? process.env.KS_COOKIE_NAME! : `ks_session_${PORT}`;
+/** Optional short label shown in the title bar, e.g. "DEV - demo data", so a test install is never mistaken for the real one. */
+export const ENV_LABEL = (process.env.KS_ENV_LABEL || '').trim().slice(0, 40);
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 /** Local wall-clock "YYYY-MM-DDTHH:MM" in the server timezone (set TZ). */

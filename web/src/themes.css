@@ -80,6 +80,7 @@
 [data-theme^="modern"] .titlebar .title { text-align: left; padding: 0; font-size: 17px; }
 [data-theme^="modern"] .dialog .titlebar, [data-theme^="modern"] .signin .titlebar { padding: 10px 10px 10px 16px; border-bottom: 1px solid var(--line); }
 [data-theme^="modern"] span.sysbtn { display: none; }
+[data-theme^="modern"] .env-badge { border: 0; border-radius: 999px; padding: 1px 10px; }
 [data-theme^="modern"] button.sysbtn { width: 36px; height: 36px; flex: none; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); font-weight: normal; }
 
 [data-theme^="modern"] .menubar { background: transparent; border-bottom: 0; padding: 8px 4px; gap: 8px; }

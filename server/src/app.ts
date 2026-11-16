@@ -3,7 +3,7 @@ import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import helmet from 'helmet';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { ATTACH_DIR, MANUAL_FILE, MAX_UPLOAD_BYTES, PRODUCTION, VERSION, WEB_DIR, localNow, utcNow } from './config.js';
+import { ATTACH_DIR, COOKIE_NAME, ENV_LABEL, MANUAL_FILE, MAX_UPLOAD_BYTES, PRODUCTION, VERSION, WEB_DIR, localNow, utcNow } from './config.js';
 import { audit, getDb, type Actor, type Row } from './db.js';
 import {
   actorFromBearer, actorFromSession, checkPasswordPolicy, countUsers, createApiToken, createUser, endSessionsFor,
@@ -23,7 +23,7 @@ import { PATIENT_FIELDS, RECORD_TYPES, TABS, TYPE_BY_KEY } from './recordTypes.j
 import { dueReminders, markReminderDone } from './reminders.js';
 import { ApiError, requireInt, requireString } from './validate.js';
 
-const COOKIE = 'ks_session';
+const COOKIE = COOKIE_NAME;
 const UPLOAD_TYPES: Record<string, string> = {
   'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
 };
@@ -40,9 +40,17 @@ function readCookie(req: Request, name: string): string | undefined {
   return undefined;
 }
 
-function setSessionCookie(res: Response, token: string, maxAgeMs: number) {
+/** True when the browser is on the server's own machine: that traffic never leaves it, so plain http is acceptable there. */
+function isLocalRequest(req: Request): boolean {
+  const host = (req.headers.host || '').replace(/:\d+$/, '');
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+}
+
+function setSessionCookie(req: Request, res: Response, token: string, maxAgeMs: number) {
+  // HTTPS-only in production, except when opened as http://localhost on the server itself (Safari refuses Secure cookies there).
+  const secure = PRODUCTION && !(isLocalRequest(req) && !req.secure);
   res.setHeader('Set-Cookie',
-    `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.max(0, Math.floor(maxAgeMs / 1000))}${PRODUCTION ? '; Secure' : ''}`);
+    `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.max(0, Math.floor(maxAgeMs / 1000))}${secure ? '; Secure' : ''}`);
 }
 
 function bearer(req: Request): string | undefined {
@@ -60,7 +68,9 @@ export function createApp() {
       directives: {
         defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"], imgSrc: ["'self'", 'data:'],
         objectSrc: ["'none'"], frameAncestors: ["'none'"], baseUri: ["'self'"], formAction: ["'self'"],
-        upgradeInsecureRequests: PRODUCTION ? [] : null,
+        // Every URL in the app is relative, and HTTPS is enforced by the proxy in front plus HSTS below.
+        // Upgrading here would break opening the app as http://localhost on the server itself.
+        upgradeInsecureRequests: null,
       },
     },
     strictTransportSecurity: PRODUCTION,
@@ -97,7 +107,7 @@ export function createApp() {
 
   // ---- public ----------------------------------------------------------------
 
-  api.get('/status', (_req, res) => { res.json({ app: 'KS EMR', version: VERSION, needs_setup: countUsers() === 0 }); });
+  api.get('/status', (_req, res) => { res.json({ app: 'KS EMR', version: VERSION, needs_setup: countUsers() === 0, env_label: ENV_LABEL }); });
   api.get('/openapi.json', (_req, res) => { res.json(buildOpenApi()); });
   api.get('/manual', (_req, res) => { res.type('text/markdown').send(fs.existsSync(MANUAL_FILE) ? fs.readFileSync(MANUAL_FILE, 'utf8') : '# Manual not found'); });
   api.get('/meta', (_req, res) => { res.json({ tabs: TABS, record_types: RECORD_TYPES, patient_fields: PATIENT_FIELDS }); });
@@ -117,20 +127,20 @@ export function createApp() {
       audit(actor, 'setup');
     })();
     const s = login(username, password, req.ip || '');
-    setSessionCookie(res, s.token, s.maxAgeMs);
+    setSessionCookie(req, res, s.token, s.maxAgeMs);
     res.json({ ok: true });
   });
 
   api.post('/login', jsonBody, (req, res) => {
     const b = body(req);
     const s = login(b.username, b.password, req.ip || '');
-    setSessionCookie(res, s.token, s.maxAgeMs);
+    setSessionCookie(req, res, s.token, s.maxAgeMs);
     res.json({ ok: true });
   });
 
   api.post('/logout', (req, res) => {
     logout(readCookie(req, COOKIE));
-    setSessionCookie(res, '', 0);
+    setSessionCookie(req, res, '', 0);
     res.json({ ok: true });
   });
 
@@ -178,7 +188,7 @@ export function createApp() {
     // Sign out everywhere, then sign this browser back in.
     endSessionsFor(actor.userId);
     const s = login(actor.username, pw, req.ip || '');
-    setSessionCookie(res, s.token, s.maxAgeMs);
+    setSessionCookie(req, res, s.token, s.maxAgeMs);
     audit(actor, 'password_changed');
     res.json({ ok: true });
   });

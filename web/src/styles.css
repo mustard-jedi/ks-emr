@@ -87,6 +87,8 @@ code { font-family: "Courier New", Courier, monospace; font-size: 13px; }
 .sysbtn { width: 24px; display: grid; place-items: center; background: var(--face); color: var(--ink); border: 0; border-right: 1px solid var(--line); font-weight: bold; padding: 0; cursor: default; }
 .sysbtn::before { content: var(--close-glyph); }
 button.sysbtn { cursor: pointer; }
+/* Label for a non-production install (KS_ENV_LABEL), so it is never mistaken for the real one. */
+.env-badge { display: inline-block; margin-left: 8px; padding: 0 8px; background: var(--due-bg); color: var(--ink); border: 1px solid var(--line); font-size: 12px; font-weight: bold; vertical-align: 1px; }
 
 .menubar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px; border-bottom: 1px solid var(--line); background: var(--face); }
 .chart-pick { font-weight: bold; display: flex; align-items: center; gap: 4px; flex: 1 1 100%; }
